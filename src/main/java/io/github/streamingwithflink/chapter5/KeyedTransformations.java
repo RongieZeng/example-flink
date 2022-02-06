@@ -18,10 +18,14 @@ package io.github.streamingwithflink.chapter5;
 import io.github.streamingwithflink.util.SensorReading;
 import io.github.streamingwithflink.util.SensorSource;
 import io.github.streamingwithflink.util.SensorTimeAssigner;
+import io.github.streamingwithflink.util.SensorTimeAssignerNew;
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+
+import java.time.Duration;
 
 /**
  * Example program to demonstrate keyed transformation functions: keyBy, reduce.
@@ -33,17 +37,19 @@ public class KeyedTransformations {
         // set up the streaming execution environment
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-        // use event time for the application
-        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
         // configure watermark interval
         env.getConfig().setAutoWatermarkInterval(1000L);
 
         // ingest sensor stream
+        WatermarkStrategy<SensorReading> watermarkStrategy = WatermarkStrategy
+                .<SensorReading>forBoundedOutOfOrderness(Duration.ofSeconds(5))
+                .withTimestampAssigner(new SensorTimeAssignerNew())
+                .withIdleness(Duration.ofMinutes(1));
         DataStream<SensorReading> readings = env
             // SensorSource generates random temperature readings
             .addSource(new SensorSource())
             // assign timestamps and watermarks which are required for event time
-            .assignTimestampsAndWatermarks(new SensorTimeAssigner());
+            .assignTimestampsAndWatermarks(watermarkStrategy);
 
         // group sensor readings by sensor id
         KeyedStream<SensorReading, String> keyed = readings

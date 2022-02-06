@@ -18,13 +18,19 @@ package io.github.streamingwithflink.chapter1;
 import io.github.streamingwithflink.util.SensorReading;
 import io.github.streamingwithflink.util.SensorSource;
 import io.github.streamingwithflink.util.SensorTimeAssigner;
+import io.github.streamingwithflink.util.SensorTimeAssignerNew;
+import org.apache.flink.api.common.eventtime.*;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.windowing.WindowFunction;
+import org.apache.flink.streaming.api.windowing.assigners.SlidingEventTimeWindows;
+import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.util.Collector;
+
+import java.time.Duration;
 
 public class AverageSensorReadings {
 
@@ -39,27 +45,30 @@ public class AverageSensorReadings {
         // set up the streaming execution environment
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-        // use event time for the application
-        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
         // configure watermark interval
         env.getConfig().setAutoWatermarkInterval(1000L);
 
         // ingest sensor stream
+        WatermarkStrategy<SensorReading> watermarkStrategy = WatermarkStrategy
+                .<SensorReading>forBoundedOutOfOrderness(Duration.ofSeconds(5))
+                .withTimestampAssigner(new SensorTimeAssignerNew())
+                .withIdleness(Duration.ofMinutes(1));
+
         DataStream<SensorReading> sensorData = env
-            // SensorSource generates random temperature readings
-            .addSource(new SensorSource())
-            // assign timestamps and watermarks which are required for event time
-            .assignTimestampsAndWatermarks(new SensorTimeAssigner());
+                // SensorSource generates random temperature readings
+                .addSource(new SensorSource())
+                // assign timestamps and watermarks which are required for event time
+                .assignTimestampsAndWatermarks(watermarkStrategy);
 
         DataStream<SensorReading> avgTemp = sensorData
-            // convert Fahrenheit to Celsius using and inlined map function
-            .map( r -> new SensorReading(r.id, r.timestamp, (r.temperature - 32) * (5.0 / 9.0)))
-            // organize stream by sensor
-            .keyBy(r -> r.id)
-            // group readings in 1 second windows
-            .timeWindow(Time.seconds(1))
-            // compute average temperature using a user-defined function
-            .apply(new TemperatureAverager());
+                // convert Fahrenheit to Celsius using and inlined map function
+                .map(r -> new SensorReading(r.id, r.timestamp, (r.temperature - 32) * (5.0 / 9.0)))
+                // organize stream by sensor
+                .keyBy(r -> r.id)
+                // group readings in 1 second windows
+                .window(TumblingEventTimeWindows.of(Time.seconds(1)))
+                // compute average temperature using a user-defined function
+                .apply(new TemperatureAverager());
 
         // print result stream to standard out
         avgTemp.print();
@@ -69,7 +78,7 @@ public class AverageSensorReadings {
     }
 
     /**
-     *  User-defined WindowFunction to compute the average temperature of SensorReadings
+     * User-defined WindowFunction to compute the average temperature of SensorReadings
      */
     public static class TemperatureAverager implements WindowFunction<SensorReading, SensorReading, String, TimeWindow> {
 
@@ -77,9 +86,9 @@ public class AverageSensorReadings {
          * apply() is invoked once for each window.
          *
          * @param sensorId the key (sensorId) of the window
-         * @param window meta data for the window
-         * @param input an iterable over the collected sensor readings that were assigned to the window
-         * @param out a collector to emit results from the function
+         * @param window   meta data for the window
+         * @param input    an iterable over the collected sensor readings that were assigned to the window
+         * @param out      a collector to emit results from the function
          */
         @Override
         public void apply(String sensorId, TimeWindow window, Iterable<SensorReading> input, Collector<SensorReading> out) {

@@ -21,12 +21,16 @@ import io.github.streamingwithflink.chapter5.util.SmokeLevelSource;
 import io.github.streamingwithflink.util.SensorReading;
 import io.github.streamingwithflink.util.SensorSource;
 import io.github.streamingwithflink.util.SensorTimeAssigner;
+import io.github.streamingwithflink.util.SensorTimeAssignerNew;
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.streaming.api.TimeCharacteristic;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.co.CoFlatMapFunction;
 import org.apache.flink.util.Collector;
+
+import java.time.Duration;
 
 /**
  * A simple application that outputs an alert whenever there is a high risk of fire.
@@ -40,17 +44,19 @@ public class MultiStreamTransformations {
         // set up the streaming execution environment
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-        // use event time for the application
-        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
         // configure watermark interval
         env.getConfig().setAutoWatermarkInterval(1000L);
 
         // ingest sensor stream
+        WatermarkStrategy<SensorReading> watermarkStrategy = WatermarkStrategy
+                .<SensorReading>forBoundedOutOfOrderness(Duration.ofSeconds(5))
+                .withTimestampAssigner(new SensorTimeAssignerNew())
+                .withIdleness(Duration.ofMinutes(1));
         DataStream<SensorReading> tempReadings = env
             // SensorSource generates random temperature readings
             .addSource(new SensorSource())
             // assign timestamps and watermarks which are required for event time
-            .assignTimestampsAndWatermarks(new SensorTimeAssigner());
+            .assignTimestampsAndWatermarks(watermarkStrategy);
 
         // ingest smoke level stream
         DataStream<SmokeLevel> smokeReadings = env

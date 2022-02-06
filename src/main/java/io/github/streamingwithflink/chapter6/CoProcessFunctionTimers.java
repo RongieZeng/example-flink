@@ -38,9 +38,6 @@ public class CoProcessFunctionTimers {
         // set up the streaming execution environment
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-        // use event time for the application
-        env.setStreamTimeCharacteristic(TimeCharacteristic.ProcessingTime);
-
         // switch messages disable filtering of sensor readings for a specific amount of time
         DataStream<Tuple2<String, Long>> filterSwitches = env
             .fromElements(

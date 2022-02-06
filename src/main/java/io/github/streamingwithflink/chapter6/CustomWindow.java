@@ -18,7 +18,9 @@ package io.github.streamingwithflink.chapter6;
 import io.github.streamingwithflink.util.SensorReading;
 import io.github.streamingwithflink.util.SensorSource;
 import io.github.streamingwithflink.util.SensorTimeAssigner;
+import io.github.streamingwithflink.util.SensorTimeAssignerNew;
 import org.apache.flink.api.common.ExecutionConfig;
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeinfo.Types;
@@ -35,6 +37,7 @@ import org.apache.flink.streaming.api.windowing.triggers.TriggerResult;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.util.Collector;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
 
@@ -48,17 +51,19 @@ public class CustomWindow {
         // checkpoint every 10 seconds
         env.getCheckpointConfig().setCheckpointInterval(10_000);
 
-        // use event time for the application
-        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
         // configure watermark interval
         env.getConfig().setAutoWatermarkInterval(1000L);
 
         // ingest sensor stream
+        WatermarkStrategy<SensorReading> watermarkStrategy = WatermarkStrategy
+                .<SensorReading>forBoundedOutOfOrderness(Duration.ofSeconds(5))
+                .withTimestampAssigner(new SensorTimeAssignerNew())
+                .withIdleness(Duration.ofMinutes(1));
         DataStream<SensorReading> sensorData = env
                 // SensorSource generates random temperature readings
                 .addSource(new SensorSource())
                 // assign timestamps and watermarks which are required for event time
-                .assignTimestampsAndWatermarks(new SensorTimeAssigner());
+                .assignTimestampsAndWatermarks(watermarkStrategy);
 
         DataStream<Tuple4<String, Long, Long, Integer>> countsPerThirtySecs = sensorData
             .keyBy(r -> r.id)
