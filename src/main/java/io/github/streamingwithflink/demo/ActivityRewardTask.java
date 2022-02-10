@@ -15,6 +15,7 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
+import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
 import org.apache.flink.util.Collector;
 
 import java.time.Duration;
@@ -41,15 +42,16 @@ public class ActivityRewardTask {
                 .withIdleness(Duration.ofMinutes(1))
                 .withTimestampAssigner(new LogEventTimeAssigner());
 
-        DataStream<Integer> logEventDataStream = env
+        DataStream<String> logEventDataStream = env
                 .addSource(new FlinkKafkaConsumer<>("log_event", new SimpleStringSchema(), properties))
                 .map(x -> JSON.parseObject(x, LogEvent.class))
                 .assignTimestampsAndWatermarks(watermarkStrategy)
                 .keyBy(LogEvent::getParentOrgId)
                 .process(new RuleProcessorFunction())
-                .setParallelism(10);
+                .setParallelism(10)
+                .map(JSON::toJSONString);
 
-        logEventDataStream.print();
+        logEventDataStream.addSink(new FlinkKafkaProducer<String>("reward_event", new SimpleStringSchema(), properties));
         env.execute("activity reward");
     }
 
